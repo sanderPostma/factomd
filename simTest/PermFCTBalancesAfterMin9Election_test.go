@@ -21,10 +21,6 @@ func createDepositAddresses() {
 }
 
 func TestPermFCTBalancesAfterMin9Election(t *testing.T) {
-	if RanSimTest {
-		return
-	}
-	RanSimTest = true
 	createDepositAddresses()
 	state0 := SetupSim("LLAL", map[string]string{"--debuglog": "", "--faulttimeout": "10"}, 10, 1, 1, t)
 
