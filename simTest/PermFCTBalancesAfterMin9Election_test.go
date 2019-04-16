@@ -2,11 +2,12 @@ package simtest
 
 import (
 	"fmt"
+	"testing"
+	"time"
+
 	. "github.com/FactomProject/factomd/engine"
 	. "github.com/FactomProject/factomd/testHelper"
 	"github.com/stretchr/testify/assert"
-	"testing"
-	"time"
 )
 
 var bankSecret string = "Fs3E9gV6DXsYzf7Fqx1fVBQPQXV695eP3k5XbmHEZVRLkMdD9qCK"
@@ -31,43 +32,39 @@ func TestPermFCTBalancesAfterMin9Election(t *testing.T) {
 		depositCount++
 		for i := range depositAddresses {
 			fmt.Printf("TXN %v %v => %v \n", depositCount, depositAddresses[i], depositAddresses[i])
-			time.Sleep(time.Millisecond*90)
+			time.Sleep(time.Millisecond * 90)
 			SendTxn(state0, 1, bankSecret, depositAddresses[i], ecPrice)
 		}
 	}
 
-	t.Run("trigger election at min 9", func(t *testing.T) {
-		StatusEveryMinute(state0)
-		CheckAuthoritySet(t)
+	StatusEveryMinute(state0)
+	CheckAuthoritySet(t)
 
-		state3 := GetFnodes()[3].State
-		if !state3.IsLeader() {
-			panic("Can't kill a audit and cause an election")
+	state3 := GetFnodes()[3].State
+	if !state3.IsLeader() {
+		panic("Can't kill a audit and cause an election")
+	}
+	RunCmd("3")
+	WaitForMinute(state3, 9) // wait till the victim is at minute 9
+	RunCmd("x")
+	go mkTransactions()
+	WaitMinutes(state0, 1) // Wait till fault completes
+	RunCmd("x")
+	WaitBlocks(state0, 2)    // wait till the victim is back as the audit server
+	WaitForMinute(state0, 1) // Wait till ablock is loaded
+	WaitForAllNodes(state0)
+	WaitForMinute(state3, 1) // Wait till node 3 is following by minutes
+	//WaitBlocks(state3, 2)
+
+	WaitForAllNodes(state0)
+	ShutDownEverything(t)
+
+	for i, node := range GetFnodes() {
+		for _, addr := range depositAddresses {
+			bal := GetBalance(node.State, addr)
+			msg := fmt.Sprintf("Node%v %v => balance: %v expected: %v \n", i, addr, bal, depositCount)
+			assert.Equal(t, depositCount, bal, msg)
 		}
-		RunCmd("3")
-		WaitForMinute(state3, 9) // wait till the victim is at minute 9
-		RunCmd("x")
-		go mkTransactions()
-		WaitMinutes(state0, 1) // Wait till fault completes
-		RunCmd("x")
-		WaitBlocks(state0, 2)    // wait till the victim is back as the audit server
-		WaitForMinute(state0, 1) // Wait till ablock is loaded
-		WaitForAllNodes(state0)
-		WaitForMinute(state3, 1) // Wait till node 3 is following by minutes
-		//WaitBlocks(state3, 2)
+	}
 
-		WaitForAllNodes(state0)
-		ShutDownEverything(t)
-
-		t.Run("check permanent balances for addresses on each node", func(t *testing.T) {
-			for i, node := range GetFnodes() {
-				for _, addr := range depositAddresses {
-					bal := GetBalance(node.State, addr)
-					msg := fmt.Sprintf("Node%v %v => balance: %v expected: %v \n", i, addr, bal, depositCount)
-					assert.Equal(t, depositCount, bal, msg)
-				}
-			}
-
-		})
-	})
 }

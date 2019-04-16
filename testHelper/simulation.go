@@ -46,7 +46,7 @@ func SetupSim(GivenNodes string, UserAddedOptions map[string]string, height int,
 	dirBase, _ := os.Getwd()
 	dirBase = dirBase + "/.sim/"
 	os.Mkdir(dirBase, 0600)
-	factomHome := dirBase+GetTestName()
+	factomHome := dirBase + GetTestName()
 	os.Setenv("FACTOM_HOME", factomHome)
 
 	CmdLineOptions := map[string]string{
