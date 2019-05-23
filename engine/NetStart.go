@@ -182,6 +182,13 @@ func NetStart(s *state.State, p *FactomParams, listenToStdin bool) {
 	s.CheckChainHeads.CheckChainHeads = p.CheckChainHeads
 	s.CheckChainHeads.Fix = p.FixChainHeads
 
+	if p.P2PIncoming > 0 {
+		p2p.MaxNumberIncomingConnections = p.P2PIncoming
+	}
+	if p.P2POutgoing > 0 {
+		p2p.NumberPeersToConnect = p.P2POutgoing
+	}
+
 	fmt.Println(">>>>>>>>>>>>>>>>")
 	fmt.Println(">>>>>>>>>>>>>>>> Net Sim Start!")
 	fmt.Println(">>>>>>>>>>>>>>>>")
@@ -271,6 +278,8 @@ func NetStart(s *state.State, p *FactomParams, listenToStdin bool) {
 	os.Stderr.WriteString(fmt.Sprintf("%20s %v\n", "balancehash", messages.AckBalanceHash))
 	os.Stderr.WriteString(fmt.Sprintf("%20s %s\n", "FNode 0 Salt", s.Salt.String()[:16]))
 	os.Stderr.WriteString(fmt.Sprintf("%20s %v\n", "enablenet", p.EnableNet))
+	os.Stderr.WriteString(fmt.Sprintf("%20s %v\n", "net incoming", p2p.MaxNumberIncomingConnections))
+	os.Stderr.WriteString(fmt.Sprintf("%20s %v\n", "net outgoing", p2p.NumberPeersToConnect))
 	os.Stderr.WriteString(fmt.Sprintf("%20s %v\n", "waitentries", p.WaitEntries))
 	os.Stderr.WriteString(fmt.Sprintf("%20s %d\n", "node", p.ListenTo))
 	os.Stderr.WriteString(fmt.Sprintf("%20s %s\n", "prefix", p.Prefix))
@@ -605,18 +614,22 @@ func makeServer(s *state.State) *FactomNode {
 
 func startServers(load bool) {
 	for i, fnode := range fnodes {
-		if i > 0 {
-			fnode.State.Init()
-		}
-		go NetworkProcessorNet(fnode)
-		if load {
-			go state.LoadDatabase(fnode.State)
-		}
-		go fnode.State.GoSyncEntries()
-		go Timer(fnode.State)
-		go elections.Run(fnode.State)
-		go fnode.State.ValidatorLoop()
+		startServer(i, fnode, load)
 	}
+}
+
+func startServer(i int, fnode *FactomNode, load bool) {
+	if i > 0 {
+		fnode.State.Init()
+	}
+	go NetworkProcessorNet(fnode)
+	if load {
+		go state.LoadDatabase(fnode.State)
+	}
+	go fnode.State.GoSyncEntries()
+	go Timer(fnode.State)
+	go elections.Run(fnode.State)
+	go fnode.State.ValidatorLoop()
 }
 
 func setupFirstAuthority(s *state.State) {
@@ -634,4 +647,20 @@ func networkHousekeeping() {
 		time.Sleep(1 * time.Second)
 		p2pProxy.SetWeight(p2pNetwork.GetNumberOfConnections())
 	}
+}
+
+func AddNode() {
+
+	fnodes := GetFnodes()
+	s := fnodes[0].State
+	i := len(fnodes)
+
+	makeServer(s)
+	modifyLoadIdentities()
+
+	fnodes = GetFnodes()
+	fnodes[i].State.IntiateNetworkSkeletonIdentity()
+	fnodes[i].State.InitiateNetworkIdentityRegistration()
+	AddSimPeer(fnodes, i, i-1) // KLUDGE peer w/ only last node
+	startServer(i, fnodes[i], true)
 }

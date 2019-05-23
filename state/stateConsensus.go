@@ -20,6 +20,7 @@ import (
 	"github.com/FactomProject/factomd/common/interfaces"
 	"github.com/FactomProject/factomd/common/messages"
 	"github.com/FactomProject/factomd/common/primitives"
+	"github.com/FactomProject/factomd/database/databaseOverlay"
 	"github.com/FactomProject/factomd/util"
 	"github.com/FactomProject/factomd/util/atomic"
 
@@ -542,7 +543,7 @@ func (s *State) ReviewHolding() {
 	if s.ResendHolding == nil {
 		s.ResendHolding = now
 	}
-	if now.GetTimeMilli()-s.ResendHolding.GetTimeMilli() < 300 {
+	if now.GetTimeMilli()-s.ResendHolding.GetTimeMilli() < 100 {
 		return
 	}
 
@@ -704,9 +705,6 @@ func (s *State) ReviewHolding() {
 		TotalXReviewQueueInputs.Inc()
 		s.XReview = append(s.XReview, v)
 		TotalHoldingQueueOutputs.Inc()
-		if len(s.XReview) > 200 {
-			break
-		}
 	}
 	reviewHoldingTime := time.Since(preReviewHoldingTime)
 	TotalReviewHoldingTime.Add(float64(reviewHoldingTime.Nanoseconds()))
@@ -750,11 +748,6 @@ func (s *State) MoveStateToHeight(dbheight uint32, newMinute int) {
 	//s.SetLLeaderHeight(int(dbheight)) // Update leader height in MoveStateToHeight
 
 	if s.LLeaderHeight != dbheight {
-		//if s.DBSigDone == true {
-		//	s.LogPrintf("executeMsg", "reset s.DBSigDone in MoveStateToHeight for block change")
-		//}
-		//
-		//s.DBSigDone = false // movestatetoheight (new block)
 		if newMinute != 0 {
 			panic(fmt.Sprintf("Can't jump to the middle of a block minute: %d", newMinute))
 		}
@@ -1086,12 +1079,11 @@ func (s *State) ExecuteEntriesInDBState(dbmsg *messages.DBStateMsg) {
 		consenLogger.WithFields(log.Fields{"func": "ExecuteEntriesInDBState", "height": height}).Errorf("Bad DBState. DBlock does not match found")
 		return // Bad DBlock
 	}
-	//todo: consider using func (s *State) WriteEntries()
-	s.DB.StartMultiBatch()
+
 	for _, e := range dbmsg.Entries {
 		s.WriteEntry <- e
 	}
-	err = s.DB.ExecuteMultiBatch()
+
 	if err != nil {
 		consenLogger.WithFields(log.Fields{"func": "ExecuteEntriesInDBState", "height": height}).Errorf("Was unable to execute multibatch")
 		return
@@ -1241,6 +1233,7 @@ func (s *State) FollowerExecuteDBState(msg interfaces.IMsg) {
 	s.Syncing = false // FollowerExecuteDBState
 
 	s.Saving = true
+	s.Syncing = false
 
 	// Hurry up our next ask.  When we get to where we have the data we asked for, then go ahead and ask for the next set.
 	if s.DBStates.LastEnd < int(dbheight) {
@@ -1252,20 +1245,6 @@ func (s *State) FollowerExecuteDBState(msg interfaces.IMsg) {
 	s.DBStates.TimeToAsk = nil
 	// Ok, I just added a valid state to the list so go process it now so it doesn't have to wait on the other messages
 	s.DBStates.UpdateState()
-
-	//d := dbstate
-	//if dbstatemsg.IsLocal() {
-	//	if s.StateSaverStruct.FastBoot && d.DirectoryBlock.GetHeader().GetDBHeight() != 0 {
-	//		dbstate.SaveStruct = SaveFactomdState(s, dbstate)
-	//
-	//		if dbstate.SaveStruct != nil {
-	//			err := s.StateSaverStruct.SaveDBStateList(s, s.DBStates, s.Network)
-	//			if err != nil {
-	//				s.LogPrintf("dbstateprocess", "Error trying to save a DBStateList %v", err)
-	//			}
-	//		}
-	//	}
-	//}
 }
 
 func (s *State) FollowerExecuteMMR(m interfaces.IMsg) {
@@ -1372,15 +1351,7 @@ func (s *State) FollowerExecuteDataResponse(m interfaces.IMsg) {
 		if !ok {
 			return
 		}
-		if len(s.WriteEntry) < cap(s.WriteEntry) {
-
-			if has(s, entry.GetHash()) {
-				s.LogPrintf("ehashes", "Duplicate DataResponse %x", entry.GetHash().Bytes()[:4])
-				return
-			}
-			s.WriteEntry <- entry // DataResponse
-			s.LogMessage("executeMsg", "writeEntry", msg)
-		}
+			s.WriteEntry <- entry
 	}
 }
 
@@ -1591,6 +1562,7 @@ func (s *State) LeaderExecuteEOM(m interfaces.IMsg) {
 
 	TotalAcksInputs.Inc()
 	s.Acks[eom.GetMsgHash().Fixed()] = ack
+	m.SetLocal(false)
 	ack.SendOut(s, ack)
 	eom.SendOut(s, eom)
 	s.FollowerExecuteEOM(eom)
@@ -2801,7 +2773,7 @@ func (s *State) NewAck(msg interfaces.IMsg, balanceHash interfaces.IHash) interf
 	ack := new(messages.Ack)
 	ack.DBHeight = s.LLeaderHeight
 	ack.VMIndex = vmIndex
-	ack.Minute = leaderMinute
+	ack.Minute = byte(s.ProcessLists.Get(s.LLeaderHeight).VMs[vmIndex].LeaderMinute)
 	ack.Timestamp = s.GetTimestamp()
 	ack.SaltNumber = s.GetSalt(ack.Timestamp)
 	copy(ack.Salt[:8], s.Salt.Bytes()[:8])

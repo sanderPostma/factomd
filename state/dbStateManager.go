@@ -616,11 +616,16 @@ func (d *DBState) ValidNext(state *State, next *messages.DBStateMsg) int {
 			return -1
 		}
 
-		if pkeymr.Fixed() != pdir.GetKeyMR().Fixed() {
-			state.LogPrintf("dbstateprocess", "At DBHeight %d the previous block in the database keymr %x does not match the dbstate %x ",
-				dbheight, pdir.GetKeyMR().Bytes(), pkeymr.Bytes())
-			return -1
+		if pkeymr.Fixed() == pdir.GetKeyMR().Fixed() {
+			//state.AddStatus(fmt.Sprintf("DBState.ValidNext: rtn -1 hashes don't match at first. dbht: %d dbstate had prev %x but we expected %x But on disk %x",
+			//	dbheight, prevkeymr.Bytes()[:3], pkeymr.Bytes()[:3], pdir.GetKeyMR().Bytes()[:3]))
+			return 1
 		}
+
+		//state.AddStatus(fmt.Sprintf("DBState.ValidNext: rtn -1 hashes don't match. dbht: %d dbstate had prev %x but we expected %x on disk %x",
+		//	dbheight, prevkeymr.Bytes()[:3], pkeymr.Bytes()[:3], pdir.GetKeyMR().Bytes()[:3]))
+		// If not the same, this is a bad new Directory Block
+		return -1
 	}
 
 	return 1
