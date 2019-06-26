@@ -39,7 +39,26 @@ func checkFileName(name string) bool {
 	if globals.Params.DebugLogRegEx == "" {
 		return false
 	}
-	checkForChangesInDebugRegex()
+	// if  the regex string has changed ...
+	if globals.Params.DebugLogRegEx != globals.LastDebugLogRegEx {
+
+		TestRegex = nil // throw away the old regex
+		globals.LastDebugLogRegEx = globals.Params.DebugLogRegEx
+	}
+	//strip quotes if they are included in the string
+	if globals.Params.DebugLogRegEx[0] == '"' || globals.Params.DebugLogRegEx[0] == '\'' {
+		globals.Params.DebugLogRegEx = globals.Params.DebugLogRegEx[1 : len(globals.Params.DebugLogRegEx)-1] // Trim the "'s
+	}
+	// if we haven't compiled the regex ...
+	if TestRegex == nil {
+		theRegex, err := regexp.Compile("(?i)" + globals.Params.DebugLogRegEx) // force case insensitive
+		if err != nil {
+			panic(err)
+		}
+		enabled = make(map[string]bool) // create a clean cache of enabled files
+		TestRegex = theRegex
+		globals.LastDebugLogRegEx = globals.Params.DebugLogRegEx
+	}
 	flag, old := enabled[name]
 	if !old {
 		flag = TestRegex.Match([]byte(name))
@@ -48,51 +67,24 @@ func checkFileName(name string) bool {
 	return flag
 }
 
-func checkForChangesInDebugRegex() {
-	// if  the regex string has changed ...
-	if globals.Params.DebugLogRegEx != globals.LastDebugLogRegEx {
-		globals.Params.DebugLogLocation, globals.Params.DebugLogRegEx = SplitUpDebugLogRegEx(globals.Params.DebugLogRegEx)
-
-		TestRegex = nil // throw away the old regex
-		globals.LastDebugLogRegEx = globals.Params.DebugLogRegEx
-	}
-	//strip quotes if they are included in the string
-	if globals.Params.DebugLogRegEx != "" && (globals.Params.DebugLogRegEx[0] == '"' || globals.Params.DebugLogRegEx[0] == '\'') {
-		globals.Params.DebugLogRegEx = globals.Params.DebugLogRegEx[1 : len(globals.Params.DebugLogRegEx)-1] // Trim the "'s
-	}
-	// if we haven't compiled the regex ...
-	if TestRegex == nil && globals.Params.DebugLogRegEx != "" {
-		theRegex, err := regexp.Compile("(?i)" + globals.Params.DebugLogRegEx) // force case insensitive
-		if err != nil {
-			panic(err)
-		}
-		enabled = make(map[string]bool) // create a clean cache of enabled files
-		TestRegex = theRegex
-	}
-	globals.LastDebugLogRegEx = globals.Params.DebugLogRegEx
-}
-
-func SplitUpDebugLogRegEx(DebugLogRegEx string) (string, string) {
-	lastSlashIndex := strings.LastIndex(DebugLogRegEx, string(os.PathSeparator))
-	regex := DebugLogRegEx[lastSlashIndex+1:]
-	dirlocation := DebugLogRegEx[0 : lastSlashIndex+1]
-	return dirlocation, regex
-}
-
 // assumes traceMutex is locked already
 func getTraceFile(name string) (f *os.File) {
-	checkForChangesInDebugRegex()
 	//traceMutex.Lock()	defer traceMutex.Unlock()
-	name = globals.Params.DebugLogLocation + strings.ToLower(name)
+	name = strings.ToLower(name)
 	if !checkFileName(name) {
 		return nil
 	}
 	if files == nil {
 		files = make(map[string]*os.File)
 	}
+	filePath := name
+	if len(globals.Params.DebugLogPath) > 0 {
+		filePath = globals.Params.DebugLogPath + "/" + filePath
+	}
+
 	f, _ = files[name]
 	if f != nil {
-		_, err := os.Stat(name)
+		_, err := os.Stat(filePath)
 		if os.IsNotExist(err) {
 			// The file was deleted out from under us
 			f.Close() // close the old log
@@ -100,9 +92,10 @@ func getTraceFile(name string) (f *os.File) {
 		}
 	}
 	if f == nil {
-		fmt.Println("Creating " + (name))
+		fmt.Println("Creating " + name)
+
 		var err error
-		f, err = os.Create(name)
+		f, err = os.Create(filePath)
 		if err != nil {
 			panic(err)
 		}
@@ -205,9 +198,10 @@ func logMessage(name string, note string, msg interfaces.IMsg) {
 			//to = "broadcast"
 		}
 		switch t {
-		case constants.VOLUNTEERAUDIT, constants.ACK_MSG:
-			embeddedHash = fmt.Sprintf(" EmbeddedMsg: %x", msg.GetHash().Bytes()[:3])
-			fixed := msg.GetHash().Fixed()
+		case constants.ACK_MSG:
+			ack := msg.(*Ack)
+			embeddedHash = fmt.Sprintf(" EmbeddedMsg: %x", ack.GetHash().Bytes()[:3])
+			fixed := ack.GetHash().Fixed()
 			embeddedMsg = getmsg(fixed)
 			if embeddedMsg == nil {
 				embeddedHash += "(unknown)"
@@ -233,7 +227,7 @@ func logMessage(name string, note string, msg interfaces.IMsg) {
 			s = fmt.Sprintf("%9d %02d:%02d:%02d.%03d %-50s M-%v|R-%v|H-%v|%p %30s:%v\n", sequence, now.Hour()%24, now.Minute()%60, now.Second()%60, (now.Nanosecond()/1e6)%1000,
 				note, mhash, rhash, hash, msg, "continue:", text)
 		}
-		//s = addNodeNames(s)
+		s = addNodeNames(s)
 		myfile.WriteString(s)
 	}
 
@@ -312,7 +306,7 @@ func LogPrintf(name string, format string, more ...interface{}) {
 		default:
 			s = fmt.Sprintf("%9d %02d:%02d:%02d.%03d %s\n", sequence, now.Hour()%24, now.Minute()%60, now.Second()%60, (now.Nanosecond()/1e6)%1000, text)
 		}
-		//s = addNodeNames(s)
+		s = addNodeNames(s)
 		myfile.WriteString(s)
 	}
 }
