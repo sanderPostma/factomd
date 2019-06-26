@@ -15,11 +15,6 @@ jobs:
             - v2-factomd-go-build-cache-{{ checksum "glide.lock" }}
 
       - run:
-          name: Create ramdisk
-          command: |
-            sudo mkdir /mnt/ramdisk
-            sudo mount -t tmpfs -o rw,size=2G tmpfs /mnt/ramdisk
-      - run:
           name: Get glide
           command: |
             go get -v github.com/Masterminds/glide
