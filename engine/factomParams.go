@@ -27,9 +27,12 @@ func init() {
 	flag.StringVar(&p.StdoutLog, "stdoutlog", "", "Log stdout to a file")
 	flag.StringVar(&p.StderrLog, "stderrlog", "", "Log stderr to a file, optionally the same file as stdout")
 	flag.StringVar(&p.DebugLogRegEx, "debuglog", "", "regex to pick which logs to save")
+	flag.StringVar(&p.DebugLogPath, "debuglogpath", "", "The path where debug logs are saved")
 	flag.IntVar(&p.FaultTimeout, "faulttimeout", 120, "Seconds before considering Federated servers at-fault. Default is 120.")
 	flag.IntVar(&p.RoundTimeout, "roundtimeout", 30, "Seconds before audit servers will increment rounds and volunteer.")
 	flag.IntVar(&p2p.NumberPeersToBroadcast, "broadcastnum", 16, "Number of peers to broadcast to in the peer to peer networking")
+	flag.IntVar(&p.P2PIncoming, "p2pIncoming", 0, "Override the maximum number of other peers dialing into this node that will be accepted; default 200")
+	flag.IntVar(&p.P2POutgoing, "p2pOutgoing", 0, "Override the maximum number of peers this node will attempt to dial into; default 32")
 	flag.StringVar(&p.ConfigPath, "config", "", "Override the config file location (factomd.conf)")
 	flag.BoolVar(&p.CheckChainHeads, "checkheads", true, "Enables checking chain heads on boot")
 	flag.BoolVar(&p.FixChainHeads, "fixheads", true, "If --checkheads is enabled, then this will also correct any errors reported")
@@ -89,7 +92,7 @@ func init() {
 	flag.StringVar(&p.FactomHome, "factomhome", "", "Set the Factom home directory. The .factom folder will be placed here if set, otherwise it will default to $HOME")
 	flag.StringVar(&p.NodeName, "nodename", "", "Assign a name to the node")
 	flag.StringVar(&p.ControlPanelSetting, "controlpanelsetting", "", "Can set to 'disabled', 'readonly', or 'readwrite' to overwrite config file")
-	flag.BoolVar(&p.FullHashesLog, "fullhasheslog", false, "true create a log of all unique hashes seen during processing")
+
 }
 
 func ParseCmdLine(args []string) *FactomParams {
@@ -178,6 +181,13 @@ func handleLogfiles(stdoutlog string, stderrlog string) {
 
 		if stdoutlog != "" {
 			// start a go routine to tee stdout to out.txt
+			if len(Params.DebugLogPath) > 0 && strings.IndexAny(stdoutlog, "/\\") < 0 {
+				stdoutlog = Params.DebugLogPath + "/" + stdoutlog
+			}
+			if len(Params.DebugLogPath) > 0 && strings.IndexAny(stderrlog, "/\\") < 0 {
+				stderrlog = Params.DebugLogPath + "/"+ stderrlog
+			}
+
 			outfile, err = os.Create(stdoutlog)
 			if err != nil {
 				panic(err)
